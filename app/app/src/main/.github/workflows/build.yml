@@ -1,0 +1,58 @@
+name: Build APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Restore signing key
+        env:
+          KS_B64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KS_B64" ]; then
+            echo "$KS_B64" | base64 -d > release.keystore
+          fi
+
+      - name: Build
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        run: |
+          if [ -f release.keystore ]; then
+            gradle assembleRelease --no-daemon
+          else
+            gradle assembleDebug --no-daemon
+          fi
+
+      - name: Collect APK
+        run: |
+          if [ -f app/build/outputs/apk/release/app-release.apk ]; then
+            cp app/build/outputs/apk/release/app-release.apk myapp.apk
+          else
+            cp app/build/outputs/apk/debug/app-debug.apk myapp.apk
+          fi
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v${{ github.run_number }}" myapp.apk \
+            --title "MyApp v${{ github.run_number }}" \
+            --notes "Download myapp.apk and install it."
